@@ -45,6 +45,7 @@ extern int LargeWorldTest( void );
 extern int ManifoldTest( void );
 extern int MathTest( void );
 extern int MeshTest( void );
+extern int MeshSubsetTest( void );
 extern int MoverTest( void );
 extern int NameCacheTest( void );
 extern int RecordingTest( void );
@@ -123,6 +124,7 @@ int main( int argc, char** argv )
 	MAYBE_RUN_TEST( ManifoldTest );
 	MAYBE_RUN_TEST( MathTest );
 	MAYBE_RUN_TEST( MeshTest );
+	MAYBE_RUN_TEST( MeshSubsetTest );
 	MAYBE_RUN_TEST( MoverTest );
 	MAYBE_RUN_TEST( NameCacheTest );
 	MAYBE_RUN_TEST( RecordingTest );
