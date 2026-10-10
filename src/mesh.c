@@ -1767,6 +1767,89 @@ b3MeshData* b3CreateMesh( const b3MeshDef* def, int* degenerateTriangleIndices, 
 	return mesh;
 }
 
+b3MeshData* b3CreateMeshSubset( const b3MeshData* source, const int32_t* triangleIndices, int triangleCount )
+{
+	if ( !b3IsValidMesh( source ) || triangleIndices == NULL || triangleCount <= 0 || triangleCount > source->triangleCount )
+	{
+		return NULL;
+	}
+	for ( int i = 0; i < triangleCount; ++i )
+	{
+		if ( triangleIndices[i] < 0 || triangleIndices[i] >= source->triangleCount )
+		{
+			return NULL;
+		}
+		for ( int j = 0; j < i; ++j )
+		{
+			if ( triangleIndices[i] == triangleIndices[j] )
+			{
+				return NULL;
+			}
+		}
+	}
+	const b3MeshTriangle* original = b3GetMeshTriangles( source );
+	const uint8_t* materials = b3GetMeshMaterialIndices( source );
+	int32_t* indices = B3_ALLOC( int32_t, 3 * triangleCount );
+	uint8_t* selectedMaterials = B3_ALLOC( uint8_t, triangleCount );
+	for ( int i = 0; i < triangleCount; ++i )
+	{
+		b3MeshTriangle t = original[triangleIndices[i]];
+		indices[3 * i] = t.index1;
+		indices[3 * i + 1] = t.index2;
+		indices[3 * i + 2] = t.index3;
+		selectedMaterials[i] = materials[triangleIndices[i]];
+	}
+	b3MeshDef def = { .vertices = (b3Vec3*)b3GetMeshVertices( source ), .vertexCount = source->vertexCount,
+		.indices = indices, .triangleCount = triangleCount, .materialIndices = selectedMaterials };
+	b3MeshData* subset = b3CreateMesh( &def, NULL, 0 );
+	B3_FREE( indices, int32_t, 3 * triangleCount );
+	B3_FREE( selectedMaterials, uint8_t, triangleCount );
+	if ( subset == NULL )
+	{
+		return NULL;
+	}
+	if ( subset->triangleCount != triangleCount )
+	{
+		b3DestroyMesh( subset );
+		return NULL;
+	}
+	// The BVH builder reorders triangles, but without welding it preserves the
+	// source vertex indices. Match each selected occurrence once after sorting.
+	uint8_t* used = B3_ALLOC( uint8_t, triangleCount );
+	memset( used, 0, triangleCount );
+	const b3MeshTriangle* triangles = b3GetMeshTriangles( subset );
+	const uint8_t* subsetMaterials = b3GetMeshMaterialIndices( subset );
+	const uint8_t* sourceFlags = b3GetMeshFlags( source );
+	uint8_t* flags = b3GetMeshFlagsWrite( subset );
+	for ( int i = 0; i < triangleCount; ++i )
+	{
+		int selected = -1;
+		for ( int j = 0; j < triangleCount; ++j )
+		{
+			int s = triangleIndices[j];
+			if ( used[j] == 0 && materials[s] == subsetMaterials[i] &&
+				memcmp( &triangles[i], &original[s], sizeof( b3MeshTriangle ) ) == 0 )
+			{
+				selected = j;
+				break;
+			}
+		}
+		B3_ASSERT( selected >= 0 );
+		if ( selected < 0 )
+		{
+			B3_FREE( used, uint8_t, triangleCount );
+			b3DestroyMesh( subset );
+			return NULL;
+		}
+		used[selected] = 1;
+		flags[i] = sourceFlags[triangleIndices[selected]];
+	}
+	B3_FREE( used, uint8_t, triangleCount );
+	subset->hash = 0;
+	subset->hash = b3Hash64NonZero( (uint8_t*)subset, subset->byteCount );
+	return subset;
+}
+
 void b3DestroyMesh( b3MeshData* mesh )
 {
 	b3Free( mesh, mesh->byteCount );

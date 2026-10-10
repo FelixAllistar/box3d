@@ -354,6 +354,13 @@ B3_API b3MeshData* b3CreatePlatformMesh( b3Vec3 center, float height, float topW
 /// Create a generic mesh.
 B3_API b3MeshData* b3CreateMesh( const b3MeshDef* def, int* degenerateTriangleIndices, int degenerateCapacity );
 
+/// Create an independently owned subset of an existing mesh. Indices address
+/// the source's baked triangle array and must be unique. Original edge flags
+/// and material indices survive partition boundaries; adjacency is not rebuilt.
+/// The source remains unchanged and may be destroyed after this call.
+/// Returns NULL for an invalid source, empty selection or invalid indices.
+B3_API b3MeshData* b3CreateMeshSubset( const b3MeshData* source, const int32_t* triangleIndices, int triangleCount );
+
 /// Destroy a mesh.
 B3_API void b3DestroyMesh( b3MeshData* mesh );
 
