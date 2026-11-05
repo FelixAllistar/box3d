@@ -133,6 +133,10 @@ typedef struct b3HullBuilder
 	// LIFO free list. Built with face->link.next.
 	b3QHFace* faceFreeHead;
 
+	// Set when the topology degenerates (two faces sharing their whole
+	// boundary). Construction stops and b3CreateHull returns NULL.
+	bool failed;
+
 	// Reusable scratch buffers.
 	b3QHHalfEdge** horizon;
 	int horizonCapacity;
@@ -1036,6 +1040,11 @@ static void b3HullBuilder_AbsorbFaces( b3HullBuilder* b, b3QHFace* face )
 
 static void b3HullBuilder_ConnectFaces( b3HullBuilder* b, b3QHHalfEdge* edge )
 {
+	if ( b->failed )
+	{
+		return;
+	}
+
 	b3QHFace* face = edge->face;
 
 	b3QHHalfEdge* twin = edge->twin;
@@ -1045,6 +1054,10 @@ static void b3HullBuilder_ConnectFaces( b3HullBuilder* b, b3QHHalfEdge* edge )
 	b3QHHalfEdge* twinPrev = twin->prev;
 	b3QHHalfEdge* twinNext = twin->next;
 
+	// If the two faces share their entire boundary (a degenerate, nearly flat
+	// input) these walks never leave the shared edges. In release builds the
+	// asserts below are compiled out and the loop spun forever. Detect the
+	// wrap before mutating anything and fail the build instead.
 	while ( edgePrev->twin->face == twin->face )
 	{
 		B3_ASSERT( edgePrev->twin == twinNext );
@@ -1052,6 +1065,11 @@ static void b3HullBuilder_ConnectFaces( b3HullBuilder* b, b3QHHalfEdge* edge )
 
 		edgePrev = edgePrev->prev;
 		twinNext = twinNext->next;
+		if ( edgePrev == edge )
+		{
+			b->failed = true;
+			return;
+		}
 	}
 	B3_ASSERT( edgePrev->face != twinNext->face );
 
@@ -1062,6 +1080,11 @@ static void b3HullBuilder_ConnectFaces( b3HullBuilder* b, b3QHHalfEdge* edge )
 
 		edgeNext = edgeNext->next;
 		twinPrev = twinPrev->prev;
+		if ( edgeNext == edge )
+		{
+			b->failed = true;
+			return;
+		}
 	}
 	B3_ASSERT( edgeNext->face != twinPrev->face );
 
@@ -1098,6 +1121,11 @@ static void b3HullBuilder_ConnectFaces( b3HullBuilder* b, b3QHHalfEdge* edge )
 
 static bool b3HullBuilder_MergeConcave( b3HullBuilder* b, b3QHFace* face )
 {
+	if ( b->failed )
+	{
+		return false;
+	}
+
 	b3QHHalfEdge* edge = face->edge;
 
 	do
@@ -1107,7 +1135,7 @@ static bool b3HullBuilder_MergeConcave( b3HullBuilder* b, b3QHFace* face )
 		if ( b3IsEdgeConcave( edge, b->minRadius ) || b3IsEdgeConcave( twin, b->minRadius ) )
 		{
 			b3HullBuilder_ConnectFaces( b, edge );
-			return true;
+			return b->failed == false;
 		}
 
 		edge = edge->next;
@@ -1119,6 +1147,11 @@ static bool b3HullBuilder_MergeConcave( b3HullBuilder* b, b3QHFace* face )
 
 static bool b3HullBuilder_MergeCoplanar( b3HullBuilder* b, b3QHFace* face )
 {
+	if ( b->failed )
+	{
+		return false;
+	}
+
 	b3QHHalfEdge* edge = face->edge;
 
 	do
@@ -1128,7 +1161,7 @@ static bool b3HullBuilder_MergeCoplanar( b3HullBuilder* b, b3QHFace* face )
 		if ( !b3IsEdgeConvex( edge, b->minRadius ) || !b3IsEdgeConvex( twin, b->minRadius ) )
 		{
 			b3HullBuilder_ConnectFaces( b, edge );
-			return true;
+			return b->failed == false;
 		}
 
 		edge = edge->next;
@@ -1450,11 +1483,16 @@ static bool b3HullBuilder_Construct( b3HullBuilder* b, const b3Vec3* points, int
 	int budget = b3ClampInt( maxVertexCount - 4, 0, B3_HULL_MAX_COUNT - 4 );
 
 	b3QHVertex* vertex = b3HullBuilder_NextConflictVertex( b );
-	while ( vertex && budget > 0 )
+	while ( vertex && budget > 0 && b->failed == false )
 	{
 		b3HullBuilder_AddVertexToHull( b, vertex );
 		vertex = b3HullBuilder_NextConflictVertex( b );
 		budget -= 1;
+	}
+
+	if ( b->failed )
+	{
+		return false;
 	}
 
 	b3HullBuilder_CleanHull( b, origin );
